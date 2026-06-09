@@ -1,0 +1,41 @@
+import express from 'express';
+import cors from 'cors';
+import { config } from './config.js';
+import { chatRouter } from './routes/chat.js';
+import { pool } from './db/index.js';
+
+const app = express();
+
+app.use(cors({ origin: config.corsOrigin }));
+app.use(express.json({ limit: '16kb' }));
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.use('/chat', chatRouter);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'An unexpected error occurred.' });
+});
+
+async function start() {
+  try {
+    await pool.query('SELECT 1');
+    console.log('Database connected');
+  } catch (err) {
+    console.error('Database connection failed:', err);
+    process.exit(1);
+  }
+
+  app.listen(config.port, () => {
+    console.log(`Server running on http://localhost:${config.port}`);
+  });
+}
+
+start();
