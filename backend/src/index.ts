@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config.js';
 import { chatRouter } from './routes/chat.js';
-import { pool } from './db/index.js';
+import { connectDatabase } from './db/prisma.js';
+import { connectRedis, isRedisAvailable } from './cache/redis.js';
 
 const app = express();
 
@@ -10,7 +11,10 @@ app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: '16kb' }));
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({
+    status: 'ok',
+    redis: isRedisAvailable() ? 'connected' : 'unavailable',
+  });
 });
 
 app.use('/chat', chatRouter);
@@ -26,11 +30,16 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 async function start() {
   try {
-    await pool.query('SELECT 1');
+    await connectDatabase();
     console.log('Database connected');
   } catch (err) {
     console.error('Database connection failed:', err);
     process.exit(1);
+  }
+
+  const redisOk = await connectRedis();
+  if (redisOk) {
+    console.log('Redis connected');
   }
 
   app.listen(config.port, () => {

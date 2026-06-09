@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { STORE_KNOWLEDGE } from '../knowledge/store.js';
-import type { Message } from '../db/index.js';
+import type { Message } from '../db/repository.js';
 
 const SYSTEM_PROMPT = `${STORE_KNOWLEDGE}
 

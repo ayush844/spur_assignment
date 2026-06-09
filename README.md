@@ -2,7 +2,7 @@
 
 A mini customer support chat app where an AI agent answers questions about a fictional e-commerce store ("Cozy Threads"). Built as a Spur founding engineer take-home assignment.
 
-**Stack:** Node.js + TypeScript (Express), SvelteKit, PostgreSQL, OpenAI GPT-4o-mini.
+**Stack:** Node.js + TypeScript (Express), SvelteKit, PostgreSQL (Prisma), Redis, OpenAI GPT-4o-mini.
 
 ---
 
@@ -14,11 +14,13 @@ A mini customer support chat app where an AI agent answers questions about a fic
 - Docker (for PostgreSQL) — or any running Postgres instance
 - OpenAI API key
 
-### 1. Start the database
+### 1. Start PostgreSQL and Redis
 
 ```bash
 docker compose up -d
 ```
+
+This starts Postgres on port **5433** and Redis on port **6380** (avoids conflicts with other local services).
 
 ### 2. Configure environment
 
@@ -53,7 +55,10 @@ Open **http://localhost:5173** and start chatting.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `OPENAI_API_KEY` | Yes | — | OpenAI API key |
-| `DATABASE_URL` | No | `postgresql://postgres:postgres@localhost:5433/spur_chat` | Postgres connection string |
+| `DATABASE_URL` | No | `postgresql://postgres:postgres@localhost:5433/spur_chat` | Postgres connection string (Prisma) |
+| `REDIS_URL` | No | `redis://localhost:6380` | Redis connection string |
+| `REDIS_SESSION_TTL_SECONDS` | No | `3600` | How long session history is cached |
+| `REDIS_FAQ_TTL_SECONDS` | No | `86400` | How long FAQ replies are cached |
 | `PORT` | No | `3001` | Backend port |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | OpenAI model |
 | `CORS_ORIGIN` | No | `http://localhost:5173` | Allowed frontend origin |
@@ -91,17 +96,23 @@ Health check endpoint.
 ```
 frontend/          SvelteKit SPA — chat widget, session persistence (localStorage)
 backend/
+  prisma/          Prisma schema (conversations, messages)
   src/
     routes/        HTTP handlers (thin — validate input, call services)
-    services/      Business logic (chat orchestration, LLM calls)
-    db/            PostgreSQL queries & schema
+    services/      Business logic (chat orchestration, LLM calls, cache)
+    db/            Prisma client + repository (clean DB API)
+    cache/         Redis client connection
     knowledge/     Store FAQ / domain knowledge (hardcoded prompt context)
     config.ts      Environment config
 ```
 
 **Design decisions:**
 
-- **Layered backend** — routes → services → db. Easy to add new channels (WhatsApp, IG) by reusing `chatService` and `llmService`.
+- **Layered backend** — routes → services → repository/cache. Easy to add new channels (WhatsApp, IG) by reusing `chatService` and `llmService`.
+- **Prisma ORM** — type-safe DB access in `db/repository.ts` instead of raw SQL. Schema lives in `prisma/schema.prisma`; sync with `npm run db:migrate`.
+- **Redis caching** — two caches with graceful fallback if Redis is down:
+  - **Session history** (`session:{id}:history`) — speeds up `GET /chat/session/:id` on page reload; invalidated on new messages.
+  - **FAQ replies** (`faq:{normalizedQuestion}`) — skips LLM for repeated first-message FAQs (e.g. "What's your return policy?"); 24h TTL.
 - **LLM encapsulated** in `services/llm.ts` behind `generateReply(history, userMessage)`. Swapping OpenAI for Anthropic is a one-file change.
 - **Domain knowledge** hardcoded in `knowledge/store.ts` and injected into the system prompt. Could move to DB later for admin editing.
 - **Session = conversation UUID**. Frontend stores it in `localStorage` and reloads history on page refresh.
@@ -123,16 +134,32 @@ backend/
 
 ---
 
-## Database
+## Database (Prisma)
 
-Schema in `backend/src/db/schema.sql`:
+Schema in `backend/prisma/schema.prisma`:
 
 - `conversations` — id (UUID), created_at
 - `messages` — id, conversation_id, sender (`user` | `ai`), text, created_at
 
-Run migrations: `cd backend && npm run db:migrate`
+```bash
+cd backend && npm run db:migrate   # syncs schema to Postgres (prisma db push)
+npm run db:generate                # regenerate Prisma client after schema changes
+```
+
+DB access goes through `backend/src/db/repository.ts` — services never import Prisma directly.
 
 No seed script needed — store knowledge lives in the prompt, not the DB.
+
+## Redis
+
+Redis runs via Docker on port **6380**. Used for:
+
+| Key pattern | Purpose | TTL |
+|---|---|---|
+| `session:{uuid}:history` | Cached message list for reload | 1 hour |
+| `faq:{normalized question}` | Cached LLM reply for first-message FAQs | 24 hours |
+
+If Redis is unavailable, the app still works — caching is silently skipped.
 
 ---
 
@@ -141,7 +168,7 @@ No seed script needed — store knowledge lives in the prompt, not the DB.
 ### Backend (Render / Railway / Fly.io)
 
 1. Provision a PostgreSQL database
-2. Set env vars (`DATABASE_URL`, `OPENAI_API_KEY`, `CORS_ORIGIN`)
+2. Set env vars (`DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `CORS_ORIGIN`)
 3. Build: `cd backend && npm install && npm run build`
 4. Start: `npm run db:migrate && npm start`
 
@@ -163,7 +190,6 @@ No seed script needed — store knowledge lives in the prompt, not the DB.
 
 **What I'd add with more time:**
 - **Streaming responses** — SSE or WebSocket for token-by-token display
-- **Redis caching** — cache FAQ answers for identical questions
 - **Admin panel** — edit store knowledge without redeploying
 - **Rate limiting** — per-IP or per-session throttling
 - **Tests** — unit tests for validation/LLM error mapping, integration tests for API
