@@ -1,5 +1,3 @@
-import { validate as isValidUuid } from 'uuid';
-import { config } from '../config.js';
 import * as db from '../db/repository.js';
 import {
   getCachedSessionHistory,
@@ -38,26 +36,6 @@ function toSessionHistory(sessionId: string, messages: db.Message[]): SessionHis
   };
 }
 
-export function validateMessage(message: unknown): { valid: boolean; text?: string; error?: string } {
-  if (typeof message !== 'string') {
-    return { valid: false, error: 'Message must be a string.' };
-  }
-
-  const trimmed = message.trim();
-  if (trimmed.length === 0) {
-    return { valid: false, error: 'Message cannot be empty.' };
-  }
-
-  if (trimmed.length > config.maxMessageLength) {
-    return {
-      valid: false,
-      error: `Message is too long. Maximum ${config.maxMessageLength} characters allowed.`,
-    };
-  }
-
-  return { valid: true, text: trimmed };
-}
-
 export async function processMessage(
   message: string,
   sessionId?: string
@@ -65,9 +43,6 @@ export async function processMessage(
   let conversationId = sessionId;
 
   if (conversationId) {
-    if (!isValidUuid(conversationId)) {
-      throw new ChatServiceError('Invalid session ID format.', 400);
-    }
     const conversation = await db.getConversation(conversationId);
     if (!conversation) {
       throw new ChatServiceError('Session not found.', 404);
@@ -116,10 +91,6 @@ export async function processMessage(
 }
 
 export async function getSessionHistory(sessionId: string): Promise<SessionHistory> {
-  if (!isValidUuid(sessionId)) {
-    throw new ChatServiceError('Invalid session ID format.', 400);
-  }
-
   const cached = await getCachedSessionHistory(sessionId);
   if (cached) return cached;
 
