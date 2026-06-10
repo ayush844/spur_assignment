@@ -1,10 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import {
-  processMessage,
-  getSessionHistory,
-  validateMessage,
-  ChatServiceError,
-} from '../services/chat.js';
+import {processMessage, getSessionHistory, validateMessage, ChatServiceError} from '../services/chat.js';
 
 export const chatRouter = Router();
 

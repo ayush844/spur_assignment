@@ -10,6 +10,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma db push",
+    "db:fix-sender-enum": "prisma db execute --schema prisma/schema.prisma --file prisma/migrations/migrate_sender_to_enum.sql",
     "postinstall": "prisma generate"
   },
   "dependencies": {

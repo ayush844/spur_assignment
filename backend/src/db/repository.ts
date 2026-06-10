@@ -1,6 +1,7 @@
+import { Sender } from '@prisma/client';
 import { prisma } from './prisma.js';
 
-export type Sender = 'user' | 'ai';
+export { Sender };
 
 export interface Message {
   id: string;
@@ -37,7 +38,7 @@ export async function addMessage(
   return {
     id: row.id,
     conversationId: row.conversationId,
-    sender: row.sender as Sender,
+    sender: row.sender,
     text: row.text,
     createdAt: row.createdAt,
   };
@@ -51,7 +52,7 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
   return rows.map((row) => ({
     id: row.id,
     conversationId: row.conversationId,
-    sender: row.sender as Sender,
+    sender: row.sender,
     text: row.text,
     createdAt: row.createdAt,
   }));
