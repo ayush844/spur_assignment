@@ -14,4 +14,6 @@ export const config = {
   maxHistoryMessages: parseInt(process.env.MAX_HISTORY_MESSAGES ?? '20', 10),
   maxTokens: parseInt(process.env.MAX_TOKENS ?? '500', 10),
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '60000', 10),
+  rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX ?? '30', 10),
 };

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config.js';
 import { chatRouter } from './routes/chat.js';
+import { chatRateLimiter } from './middleware/rateLimit.js';
 import { connectDatabase } from './db/prisma.js';
 import { connectRedis, isRedisAvailable } from './cache/redis.js';
 
@@ -17,7 +18,7 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.use('/chat', chatRouter);
+app.use('/chat', chatRateLimiter, chatRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
