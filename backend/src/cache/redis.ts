@@ -11,7 +11,9 @@ export function isRedisAvailable(): boolean {
 export function getRedis(): Redis {
   if (!client) {
     client = new Redis(config.redisUrl, {
-      maxRetriesPerRequest: 2,
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      tls: {},
       lazyConnect: true,
     });
   }
