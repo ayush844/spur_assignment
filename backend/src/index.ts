@@ -8,6 +8,7 @@ import { connectRedis, isRedisAvailable } from './cache/redis.js';
 
 const app = express();
 
+app.set('trust proxy', 1);
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: '16kb' }));
 
