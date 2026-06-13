@@ -108,17 +108,21 @@
     <div class="avatar">CT</div>
     <div class="header-text">
       <h2>Cozy Threads Support</h2>
-      <p>{loading ? 'Agent is typing…' : 'Typically replies instantly'}</p>
+      <p>{loading ? 'Agent is typing… (server may take up to a minute to wake up)' : 'Typically replies instantly'}</p>
     </div>
     <span class="status-dot" class:typing={loading}></span>
   </header>
 
   <div class="messages" bind:this={messagesEl}>
     {#if loadingHistory}
-      <div class="empty-state">Loading conversation…</div>
+      <div class="empty-state">
+        <p>Loading conversation…</p>
+        <p class="hint">If the server has been idle, it may take 30–60 seconds to wake up.</p>
+      </div>
     {:else if messages.length === 0}
       <div class="empty-state">
         <p>Hi there! 👋 How can we help you today?</p>
+        <p class="hint">First message may take up to a minute while the server starts up.</p>
         <div class="suggestions">
           {#each suggestions as suggestion}
             <button
@@ -271,6 +275,13 @@
   .empty-state p {
     margin: 0 0 16px;
     font-size: 15px;
+  }
+
+  .empty-state .hint {
+    margin: 0 0 16px;
+    font-size: 12px;
+    color: #b2bec3;
+    line-height: 1.4;
   }
 
   .suggestions {
