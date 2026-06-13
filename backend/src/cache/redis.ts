@@ -13,7 +13,6 @@ export function getRedis(): Redis {
     client = new Redis(config.redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
-      tls: {},
       lazyConnect: true,
     });
   }

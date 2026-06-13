@@ -1,77 +1,201 @@
 # Cozy Threads — AI Live Chat Agent
 
-A mini customer support chat app where an AI agent answers questions about a fictional e-commerce store ("Cozy Threads"). Built as a Spur founding engineer take-home assignment.
+A customer support chat widget where an AI agent answers questions about a fictional store ("Cozy Threads") — shipping, returns, support hours, etc.
 
-**Stack:** Node.js + TypeScript (Express), SvelteKit, PostgreSQL (Prisma), Redis, OpenAI GPT-4o-mini.
+**Stack:** Express + TypeScript · SvelteKit · PostgreSQL (Prisma) · Redis · OpenAI
 
 ---
 
-## Quick Start (Local)
+## How It Works
+
+```
+User types message in chat widget (SvelteKit)
+        ↓
+POST /chat/message  →  Backend (Express)
+        ↓
+Save message to Postgres
+        ↓
+Check Redis FAQ cache (first message only) → hit? skip OpenAI
+        ↓
+Call OpenAI with store knowledge + conversation history
+        ↓
+Save AI reply to Postgres · update Redis cache
+        ↓
+Return reply to frontend · display in chat
+```
+
+On page reload, the frontend reads `sessionId` from `localStorage` and fetches past messages via `GET /chat/session/:id` (served from Redis cache when available).
+
+---
+
+## Important Note — Production (Render Free Tier)
+
+The backend is deployed on **Render's free plan**. The server **sleeps after ~15 minutes of inactivity**.
+
+- The **first message after sleep** can take **30–60 seconds** while the server wakes up.
+- After that, responses are normal speed.
+
+This is a Render free-tier limitation, not an app bug.
+
+**Production services:**
+| Service | Provider |
+|---|---|
+| Frontend | Vercel |
+| Backend | Render (free) |
+| Database | Neon.tech (PostgreSQL) |
+| Cache | Upstash (Redis) |
+
+---
+
+## Local Setup (Step by Step)
 
 ### Prerequisites
 
 - Node.js 20+
-- Docker (for PostgreSQL) — or any running Postgres instance
-- OpenAI API key
+- Docker Desktop (for Postgres + Redis)
+- OpenAI API key → [platform.openai.com](https://platform.openai.com)
 
-### 1. Start PostgreSQL and Redis
+### Step 1 — Clone and install
+
+```bash
+git clone https://github.com/ayush844/spur_assignment.git
+cd spur_assignment
+
+cd backend && npm install
+cd ../frontend && npm install
+```
+
+### Step 2 — Start Postgres and Redis (Docker)
+
+From the project root:
 
 ```bash
 docker compose up -d
 ```
 
-This starts Postgres on port **5433** and Redis on port **6380** (avoids conflicts with other local services).
+This starts:
 
-### 2. Configure environment
+| Service | Container | Host port | Notes |
+|---|---|---|---|
+| PostgreSQL 15 | `spur_chat_db` | **5433** | Mapped to 5432 inside container |
+| Redis 7 | `spur_chat_redis` | **6380** | Mapped to 6379 inside container |
+
+Ports 5433/6380 avoid conflicts if you already have Postgres/Redis on default ports.
+
+Check they're running:
+
+```bash
+docker compose ps
+```
+
+### Step 3 — Backend environment
 
 ```bash
 cp .env.example backend/.env
-# Edit backend/.env and set your OPENAI_API_KEY
 ```
 
-### 3. Install dependencies & run migrations
+Edit `backend/.env`:
 
-```bash
-cd backend && npm install && npm run db:migrate
-cd ../frontend && npm install
+```env
+PORT=3001
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/spur_chat
+REDIS_URL=redis://localhost:6380
+OPENAI_API_KEY=sk-your-key-here
+OPENAI_MODEL=gpt-4o-mini
+CORS_ORIGIN=http://localhost:5173
 ```
 
-### 4. Start the servers
+### Step 4 — Frontend environment
 
 ```bash
-# Terminal 1 — backend (port 3001)
+cp .env.example frontend/.env
+```
+
+Edit `frontend/.env`:
+
+```env
+VITE_API_URL=http://localhost:3001
+```
+
+### Step 5 — Database setup (Prisma)
+
+```bash
+cd backend
+npm run db:migrate
+```
+
+This runs `prisma db push` — creates `conversations` and `messages` tables in Postgres. No seed data needed; store FAQ knowledge lives in the LLM prompt.
+
+If you previously had a `TEXT` sender column and need to migrate to enum:
+
+```bash
+npm run db:fix-sender-enum   # one-time, only if needed
+npm run db:migrate
+```
+
+Browse data locally:
+
+```bash
+npx prisma studio
+```
+
+### Step 6 — Run the app
+
+```bash
+# Terminal 1 — backend (http://localhost:3001)
 cd backend && npm run dev
 
-# Terminal 2 — frontend (port 5173)
+# Terminal 2 — frontend (http://localhost:5173)
 cd frontend && npm run dev
 ```
 
-Open **http://localhost:5173** and start chatting.
+Open **http://localhost:5173** and try: *"What's your return policy?"*
 
 ---
 
 ## Environment Variables
 
-| Variable | Required | Default | Description |
+### Backend (`backend/.env`)
+
+| Variable | Required | Default (local) | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | Yes | — | OpenAI API key |
-| `DATABASE_URL` | No | `postgresql://postgres:postgres@localhost:5433/spur_chat` | Postgres connection string (Prisma) |
-| `REDIS_URL` | No | `redis://localhost:6380` | Redis connection string |
-| `REDIS_SESSION_TTL_SECONDS` | No | `3600` | How long session history is cached |
-| `REDIS_FAQ_TTL_SECONDS` | No | `86400` | How long FAQ replies are cached |
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key |
+| `DATABASE_URL` | No | `postgresql://postgres:postgres@localhost:5433/spur_chat` | Postgres connection (Prisma) |
+| `REDIS_URL` | No | `redis://localhost:6380` | Redis connection |
 | `PORT` | No | `3001` | Backend port |
+| `CORS_ORIGIN` | No | `http://localhost:5173` | Frontend URL (set to Vercel URL in prod) |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | OpenAI model |
-| `CORS_ORIGIN` | No | `http://localhost:5173` | Allowed frontend origin |
-| `MAX_MESSAGE_LENGTH` | No | `4000` | Max user message chars |
-| `MAX_HISTORY_MESSAGES` | No | `20` | Messages sent to LLM as context |
-| `MAX_TOKENS` | No | `500` | Max tokens per LLM response |
-| `VITE_API_URL` | No | `http://localhost:3001` | Frontend → backend URL (set in `frontend/.env`) |
+| `MAX_MESSAGE_LENGTH` | No | `4000` | Max chars per user message |
+| `MAX_HISTORY_MESSAGES` | No | `20` | Prior messages sent to LLM |
+| `MAX_TOKENS` | No | `500` | Max tokens per LLM reply |
+| `REDIS_SESSION_TTL_SECONDS` | No | `3600` | Session cache TTL (1 hour) |
+| `REDIS_FAQ_TTL_SECONDS` | No | `86400` | FAQ cache TTL (24 hours) |
+| `RATE_LIMIT_WINDOW_MS` | No | `60000` | Rate limit window (1 min) |
+| `RATE_LIMIT_MAX` | No | `30` | Max requests per IP per window |
+
+### Frontend (`frontend/.env`)
+
+| Variable | Required | Default (local) | Description |
+|---|---|---|---|
+| `VITE_API_URL` | No | `http://localhost:3001` | Backend URL (set to Render URL in prod) |
+
+### Production values
+
+On Render, set `DATABASE_URL` to your **Neon** connection string, `REDIS_URL` to your **Upstash** URL, and `CORS_ORIGIN` to your **Vercel** frontend URL.
+
+On Vercel, set `VITE_API_URL` to your **Render** backend URL.
 
 ---
 
 ## API
 
-### `POST /chat/message`
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/chat/message` | Send a message, get AI reply |
+| `GET` | `/chat/session/:sessionId` | Get conversation history |
+| `GET` | `/health` | Health check |
+
+**POST /chat/message**
 
 ```json
 // Request
@@ -81,124 +205,151 @@ Open **http://localhost:5173** and start chatting.
 { "reply": "...", "sessionId": "uuid" }
 ```
 
-### `GET /chat/session/:sessionId`
-
-Returns full message history for a conversation.
-
-### `GET /health`
-
-Health check endpoint.
-
 ---
 
 ## Architecture
 
 ```
-frontend/          SvelteKit SPA — chat widget, session persistence (localStorage)
+frontend/                 SvelteKit chat widget
+  src/lib/api.ts          fetch calls to backend
+  src/lib/ChatWidget.svelte
+
 backend/
-  prisma/          Prisma schema (conversations, messages)
+  prisma/schema.prisma    DB schema (source of truth)
   src/
-    routes/        HTTP handlers (thin — validate input, call services)
-    services/      Business logic (chat orchestration, LLM calls, cache)
-    db/            Prisma client + repository (clean DB API)
-    cache/         Redis client connection
-    knowledge/     Store FAQ / domain knowledge (hardcoded prompt context)
-    config.ts      Environment config
+    routes/               URL → controller mapping only
+    controllers/          validate input, call services, return JSON
+    services/
+      chat.ts             orchestrates DB + cache + LLM
+      llm.ts              OpenAI integration
+      cache.ts            Redis read/write/invalidate
+    db/
+      prisma.ts           Prisma client
+      repository.ts       DB queries (createConversation, addMessage, …)
+    cache/redis.ts        Redis connection
+    schemas/              Zod validation
+    middleware/           rate limiting, async error handler
+    knowledge/store.ts    hardcoded store FAQ for LLM prompt
 ```
 
-**Design decisions:**
+**Request flow:**
 
-- **Layered backend** — routes → services → repository/cache. Easy to add new channels (WhatsApp, IG) by reusing `chatService` and `llmService`.
-- **Prisma ORM** — type-safe DB access in `db/repository.ts` instead of raw SQL. Schema lives in `prisma/schema.prisma`; sync with `npm run db:migrate`.
-- **Redis caching** — two caches with graceful fallback if Redis is down:
-  - **Session history** (`session:{id}:history`) — speeds up `GET /chat/session/:id` on page reload; invalidated on new messages.
-  - **FAQ replies** (`faq:{normalizedQuestion}`) — skips LLM for repeated first-message FAQs (e.g. "What's your return policy?"); 24h TTL.
-- **LLM encapsulated** in `services/llm.ts` behind `generateReply(history, userMessage)`. Swapping OpenAI for Anthropic is a one-file change.
-- **Domain knowledge** hardcoded in `knowledge/store.ts` and injected into the system prompt. Could move to DB later for admin editing.
-- **Session = conversation UUID**. Frontend stores it in `localStorage` and reloads history on page refresh.
-- **Optimistic UI** — user message appears immediately; typing indicator while waiting for LLM.
-- **Errors surfaced in UI** — LLM failures, rate limits, and network errors return friendly messages, never crash the server.
+```
+Route → Controller → Service → Repository / Cache / LLM
+                         ↓
+                    Postgres · Redis · OpenAI
+```
+
+### Design decisions
+
+1. **Layered backend** — routes, controllers, services, and DB are separate. Adding WhatsApp or Instagram later means a new route/controller reusing the same `chat` service.
+
+2. **Prisma ORM** — type-safe queries in `repository.ts`. Services never touch Prisma directly.
+
+3. **Zod validation** at the controller boundary — empty messages, bad UUIDs, and oversized text are rejected before hitting the DB or LLM.
+
+4. **Redis caching (graceful fallback)** — two caches, both optional:
+   - **Session history** — faster page reloads (`GET /chat/session/:id`)
+   - **FAQ replies** — skips OpenAI when a new user asks the same first-message FAQ (e.g. return policy). Saves cost and latency.
+   - If Redis is down, the app still works — it just skips caching.
+
+5. **LLM behind one function** — `generateReply(history, userMessage)` in `services/llm.ts`. Swapping OpenAI for Anthropic is a one-file change.
+
+6. **Session = conversation UUID** — frontend stores it in `localStorage`; no auth needed for this exercise.
+
+7. **Optimistic UI** — user message shows immediately; typing indicator while waiting for the AI.
 
 ---
 
 ## LLM Integration
 
-- **Provider:** OpenAI (`gpt-4o-mini` by default — fast, cheap, good enough for FAQ)
-- **Prompting:** System prompt includes full store knowledge (shipping, returns, hours) plus behavioral instructions. Last 20 messages sent as conversation history for context.
+- **Provider:** OpenAI (`gpt-4o-mini`)
+- **Prompting:**
+  - System prompt includes hardcoded store knowledge from `knowledge/store.ts` (shipping, returns, hours, payment)
+  - Last 20 messages sent as conversation history for follow-up context
+  - Instructions: answer concisely, stay in scope, don't invent policies
 - **Guardrails:**
-  - Empty messages rejected (400)
-  - Messages over 4,000 chars rejected (400)
-  - API errors (401, 429, timeout) caught and mapped to user-friendly replies
+  - Zod rejects empty / oversized messages (400)
+  - API errors (401, 429, timeout) mapped to friendly user-facing messages
   - `max_tokens: 500` cap for cost control
-  - AI error replies still persisted so history stays consistent
+  - Error replies still saved to DB so history stays consistent
 
 ---
 
-## Database (Prisma)
+## Database
 
-Schema in `backend/prisma/schema.prisma`:
+**Tables** (see `backend/prisma/schema.prisma`):
 
-- `conversations` — id (UUID), created_at
-- `messages` — id, conversation_id, sender (`user` | `ai`), text, created_at
+| Table | Fields |
+|---|---|
+| `conversations` | `id` (UUID), `created_at` |
+| `messages` | `id`, `conversation_id`, `sender` (enum: `user` \| `ai`), `text`, `created_at` |
 
 ```bash
-cd backend && npm run db:migrate   # syncs schema to Postgres (prisma db push)
-npm run db:generate                # regenerate Prisma client after schema changes
+cd backend
+npm run db:migrate      # sync schema to Postgres
+npm run db:generate     # regenerate Prisma client after schema changes
+npx prisma studio       # browse data in browser
 ```
 
-DB access goes through `backend/src/db/repository.ts` — services never import Prisma directly.
+No seed script — FAQ content is in the LLM prompt, not the database.
 
-No seed script needed — store knowledge lives in the prompt, not the DB.
+---
 
-## Redis
+## Redis Caching
 
-Redis runs via Docker on port **6380**. Used for:
-
-| Key pattern | Purpose | TTL |
+| Key | Purpose | TTL |
 |---|---|---|
 | `session:{uuid}:history` | Cached message list for reload | 1 hour |
-| `faq:{normalized question}` | Cached LLM reply for first-message FAQs | 24 hours |
+| `faq:{normalized question}` | Cached AI reply for repeat first-message FAQs | 24 hours |
 
-If Redis is unavailable, the app still works — caching is silently skipped.
+Postgres is always the source of truth. Redis is a speed/cost layer only.
 
 ---
 
 ## Deployment
 
-### Backend (Render / Railway / Fly.io)
+### Backend — Render
 
-1. Provision a PostgreSQL database
-2. Set env vars (`DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `CORS_ORIGIN`)
-3. Build: `cd backend && npm install && npm run build`
-4. Start: `npm run db:migrate && npm start`
+- **Build:** `cd backend && npm install && npm run build`
+- **Start:** `npm run db:migrate && npm start`
+- **Env:** `DATABASE_URL` (Neon), `REDIS_URL` (Upstash), `OPENAI_API_KEY`, `CORS_ORIGIN` (Vercel URL)
 
-### Frontend (Vercel / Netlify)
+### Frontend — Vercel
 
-1. Set `VITE_API_URL` to your deployed backend URL
-2. Build: `cd frontend && npm install && npm run build`
-3. Deploy the `build/` directory (static adapter)
+- **Root directory:** `frontend`
+- **Build:** `npm run build`
+- **Env:** `VITE_API_URL` (Render backend URL)
+
+### Database — Neon.tech
+
+Create a PostgreSQL database, copy the connection string into Render's `DATABASE_URL`, then run migrations once.
+
+### Cache — Upstash
+
+Create a Redis database, copy the URL into Render's `REDIS_URL`.
 
 ---
 
 ## Trade-offs & If I Had More Time
 
 **What I prioritized:**
-- Clean separation of concerns
 - End-to-end chat with persistence and history reload
-- Graceful error handling
-- Polished but simple UX (typing indicator, suggestions, auto-scroll)
+- Clean backend layers (routes → controllers → services)
+- Redis caching with graceful fallback
+- Input validation (Zod) and rate limiting
+- Friendly error handling in the UI
 
 **What I'd add with more time:**
-- **Streaming responses** — SSE or WebSocket for token-by-token display
+- **Streaming responses** — SSE for token-by-token display instead of waiting for the full reply
 - **Admin panel** — edit store knowledge without redeploying
-- **Rate limiting** — per-IP or per-session throttling
-- **Tests** — unit tests for validation/LLM error mapping, integration tests for API
-- **Message truncation** — soft-truncate very long messages instead of rejecting
-- **Multi-channel adapter pattern** — abstract `Channel` interface for WhatsApp/IG later
+- **Tests** — unit tests for validation/LLM error mapping, integration tests for the API
+- **Upgrade Render plan** — eliminate cold-start delay on first request
+- **Multi-channel adapter** — abstract `Channel` interface for WhatsApp / Instagram later
 - **Observability** — structured logging, request tracing
 
 ---
 
 ## License
 
-MIT — take-home assignment, not production software.
+MIT — take-home assignment.
